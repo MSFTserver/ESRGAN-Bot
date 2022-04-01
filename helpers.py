@@ -47,7 +47,7 @@ def fuzzy_load_model(model_name, aliases, fuzzymodels):
     ]
     # Load the model in torch using safe unpickler
     model = torch.load(
-        os.path.join("./models/", full_model_name),
+        os.path.join(os.getcwd()+"/models/", full_model_name),
         pickle_module=unpickler.RestrictedUnpickle,
     )
     return full_model_name, model
@@ -111,7 +111,7 @@ def parse_models(model_string, aliases, fuzzymodels):
 
 
 models = []
-for (dirpath, dirnames, filenames) in os.walk("./models"):
+for (dirpath, dirnames, filenames) in os.walk(os.getcwd()+"/models"):
     models.extend(filenames)
     break
 fuzzymodels, aliases = build_aliases(models)

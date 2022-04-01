@@ -1,19 +1,10 @@
-import asyncio
-import functools
-import gc
-import math
-import os.path
-import re
-import urllib.request
+import asyncio, functools, gc, math, os.path, re, urllib.request
 from collections import OrderedDict
 from io import BytesIO
 from os import walk
 
-import cv2
-import discord
+import cv2, discord, torch, yaml
 import numpy as np
-import torch
-import yaml
 from discord.ext import commands
 from fuzzywuzzy import fuzz, process
 
@@ -26,7 +17,7 @@ from utils.architecture.SRVGG import SRVGGNetCompact as RealESRGANv2
 description = """A rewrite of the ESRGAN bot entirely in python"""
 
 try:
-    config = yaml.safe_load(open("./config.yml"))
+    config = yaml.safe_load(open(os.getcwd()+"/config.yml"))
 except:
     print("You must provide a config.yml!!!")
 
@@ -44,14 +35,14 @@ async def globally_block_not_guild(ctx):
         guild = bot.get_guild(config["guild_id"])
         guild_member = await guild.fetch_member(ctx.author.id)
         role = discord.utils.find(
-            lambda r: r.name == config["patreon_role_name"], guild_member.roles
+            lambda r: r.name == config["regular_role_name"], guild_member.roles
         )
         if role:
             print(f"{ctx.author.name} is permitted to use the bot in DMs.")
             return True
         else:
             await ctx.message.channel.send(
-                "{}, ESRGAN bot is not permitted for use in DMs. Please join the GameUpscale server at https://www.discord.gg/VR9SzTT to continue use of this bot, or subscribe to my Patreon at https://www.patreon.com/esrganbot. Thank you.".format(
+                "{}, bot is not permitted for use in DMs. Please join the The Generators server at https://discord.gg/TheGenerators to continue use of this bot.".format(
                     ctx.author.mention
                 )
             )
@@ -61,7 +52,7 @@ async def globally_block_not_guild(ctx):
         if not is_gu:
             print(f"{ctx.guild.name}, {ctx.author.name}")
             await ctx.message.channel.send(
-                "{}, ESRGAN bot is not permitted for use in this server. Please join the GameUpscale server at discord.gg/VR9SzTT to continue use of this bot. Thank you.".format(
+                "{}, bot is not permitted for use in this server. Please join the The Generators server at https://discord.gg/TheGenerators to continue use of this bot.".format(
                     ctx.author.mention
                 )
             )
@@ -83,14 +74,14 @@ class ESRGAN(commands.Cog):
         self.last_scale = None
         self.last_kind = None
         self.model = None
-        self.device = torch.device("cuda")
+        self.device = torch.device("cuda:1")
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
         self.current_task = None
 
         # This group of variables pertain to the models list
         self.models = []
-        for (dirpath, dirnames, filenames) in walk("./models"):
+        for (dirpath, dirnames, filenames) in walk(os.getcwd()+"/models"):
             self.models.extend(filenames)
             break
         self.fuzzymodels, self.aliases = self.build_aliases()
@@ -100,7 +91,7 @@ class ESRGAN(commands.Cog):
         print(f"Logged in as {self.bot.user.name} - {self.bot.user.id}")
         print("------")
         await bot.change_presence(
-            status=discord.Status.online, activity=discord.Game("ESRGAN")
+            status=discord.Status.online, activity=discord.Game("ESRGAN Upscale")
         )
 
     @commands.command()
@@ -112,6 +103,8 @@ class ESRGAN(commands.Cog):
 
 `{0}upscale [url] [model]` // Upscales linked image using specified model. Model name input will be automatically matched with the closest model name.
 
+`{0}upscale [model]>[model]>[model]` // Chain Upscales using multiple models. Model name input will be automatically matched with the closest model name.
+
 `{0}models [-dm]` // Lists all available models as a .txt file. Can add `-dm` flag to be DM'd a regular list.
 
 `{0}montage [url1] [url2] [label]` // Creates a montage of two specified images with specified label
@@ -122,15 +115,17 @@ class ESRGAN(commands.Cog):
 
 Optional `{0}upscale` args:
 
-`-downscale [amount]` // Downscales the image by the amount listed. For example, `-downscale 4` will make the image 25% of its original size.
+`-downscale [amount], -filter [filter], -blur [type] [amount], -montage, seamless`
 
-`-filter [filter]` // Filter to be used for downscaling. Must be a valid OpenCV image interpolation filter, with ImageMagick aliases supported as well. Defaults to box/area.
+`{0}upscale [model] -downscale [amount]` // Downscales the image by the amount listed. For example, `-downscale 4` will make the image 25% of its original size.
 
-`-blur [type] [amount]` // Blurs the image before upscaling using the specified blur type and the amount specified. Only Gaussian and median blur are currently supported.
+`{0}upscale [model] -filter [filter]` // Filter to be used for downscaling. Must be a valid OpenCV image interpolation filter, with ImageMagick aliases supported as well. Defaults to box/area (nearest, area, cubic, linear, linear_exact, lanczos).
 
-`-montage` // Creates aside by side comparison of the LR and result after upscaling.
+`{0}upscale [model] -blur [type] [amount]` // Blurs the image before upscaling using the specified blur type and the amount specified. Only Gaussian and median blur are currently supported.
 
-`-seamless` // Duplicates the image around the edges to make a seamless texture retain its seamlessness
+`{0}upscale [model] -montage` // Creates aside by side comparison of the LR and result after upscaling.
+
+`{0}upscale [model] -seamless` // Duplicates the image around the edges to make a seamless texture retain its seamlessness
 
 Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter point -montage`""".format(
                 bot.command_prefix
@@ -170,9 +165,9 @@ Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter p
         await ctx.message.channel.send("Adding model {}...".format(nickname))
         model_name = nickname.replace(".pth", "") + ".pth"
         try:
-            if not os.path.exists("./models/{}".format(model_name)):
+            if not os.path.exists(os.getcwd()+"/models/{}".format(model_name)):
                 urllib.request.urlretrieve(
-                    url, "./models/{}".format(model_name))
+                    url, os.getcwd()+"/models/{}".format(model_name))
                 await ctx.message.channel.send(
                     "Model {} successfully added.".format(nickname)
                 )
@@ -192,9 +187,9 @@ Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter p
         await ctx.message.channel.send("Replacing model {}...".format(nickname))
         model_name = nickname.replace(".pth", "") + ".pth"
         try:
-            if os.path.exists("./models/{}".format(model_name)):
+            if os.path.exists(os.getcwd()+"/models/{}".format(model_name)):
                 urllib.request.urlretrieve(
-                    url, "./models/{}".format(model_name))
+                    url, os.getcwd()+"/models/{}".format(model_name))
                 await ctx.message.channel.send(
                     "Model {} successfully added.".format(nickname)
                 )
@@ -213,11 +208,11 @@ Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter p
     async def removemodel(self, ctx, nickname):
         model_name = nickname.replace(".pth", "") + ".pth"
         if model_name in self.models and os.path.exists(
-            "./models/{}".format(model_name)
+            os.getcwd()+"/models/{}".format(model_name)
         ):
             self.models.remove(model_name)
             self.models.sort()
-            os.unlink("./models/{}".format(model_name))
+            os.unlink(os.getcwd()+"/models/{}".format(model_name))
             self.fuzzymodels, self.aliases = self.build_aliases()
             await ctx.message.channel.send("Removed model {}!".format(nickname))
         else:
@@ -227,7 +222,7 @@ Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter p
     @commands.has_role(config["moderator_role_id"])
     async def reloadmodels(self, ctx):
         self.models = []
-        for (dirpath, dirnames, filenames) in walk("./models"):
+        for (dirpath, dirnames, filenames) in walk(os.getcwd()+"/models"):
             self.models.extend(filenames)
         self.models.sort()
         self.fuzzymodels, self.aliases = self.build_aliases()
@@ -442,7 +437,7 @@ Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter p
                     try:
                         job = self.queue[0]["jobs"].pop(0)
                         sent_message = await message.channel.send(
-                            f"{job['filename']} is being upscaled using {', '.join(job['models']) if len(job['models']) > 1 else job['models'][0]}"
+                            f"using {', '.join(job['models']) if len(job['models']) > 1 else job['models'][0]}"
                         )
 
                         img = job["image"]
@@ -511,7 +506,7 @@ Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter p
                             )
                         # send result through discord
                         await bot.loop.create_task(job["message"].channel.send(
-                            "{}, your image has been upscaled using {}.".format(
+                            "{}, upscaled using {}.".format(
                                 job["message"].author.mention,
                                 ", ".join(job["models"])
                                 if len(job["models"]) > 1
@@ -643,11 +638,11 @@ Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter p
             ):  # interpolating OTF, example: 4xBox:25&4xPSNR:75
                 interps = model_name.split("&")[:2]
                 model_1 = torch.load(
-                    "./models/" + interps[0].split(":")[0],
+                    os.getcwd()+"/models/" + interps[0].split(":")[0],
                     pickle_module=unpickler.RestrictedUnpickle,
                 )
                 model_2 = torch.load(
-                    "./models/" + interps[1].split(":")[0],
+                    os.getcwd()+"/models/" + interps[1].split(":")[0],
                     pickle_module=unpickler.RestrictedUnpickle,
                 )
                 state_dict = OrderedDict()
@@ -657,7 +652,7 @@ Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter p
                         int(interps[1].split(":")[1]) / 100
                     ) * v_2
             else:
-                model_path = "./models/" + model_name
+                model_path = os.getcwd()+"/models/" + model_name
                 state_dict = torch.load(
                     model_path, pickle_module=unpickler.RestrictedUnpickle
                 )
