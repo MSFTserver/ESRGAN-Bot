@@ -142,3 +142,6 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+.vs/ESRGAN-Bot/v17/.suo
+.vs/slnx.sqlite
+.vs/VSWorkspaceState.json
