@@ -447,10 +447,13 @@ Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter p
 
                         for i in range(len(job["models"])):
 
+                            model = job['models'][i].lower()
+                            
                             img_height, img_width = img.shape[:2]
 
                             if (
-                                not img_height > config["img_size_cutoff"]
+                                model.startswith("1x_")
+                                or not img_height > config["img_size_cutoff"]
                                 and not img_width > config["img_size_cutoff"]
                             ):
 
@@ -515,7 +518,6 @@ Example: `{0}upscale www.imageurl.com/image.png 4xBox.pth -downscale 4 -filter p
                             file=discord.File(
                                 data, job["filename"].split(".")[0] + ext
                             )))
-                        await sent_message.edit(content=sent_message.content + " Done.")
                     except Exception as e:
                         print(e)
                         await job["message"].channel.send(
